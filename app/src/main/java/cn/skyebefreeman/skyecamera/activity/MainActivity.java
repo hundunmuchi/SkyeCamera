@@ -145,7 +145,6 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onImageAvailable(ImageReader reader) {
             // 进行相片存储
-            mCameraDevice.close();
             Image image = reader.acquireNextImage();
             ByteBuffer buffer = image.getPlanes()[0].getBuffer();
             byte[] bytes = new byte[buffer.remaining()];
@@ -197,7 +196,17 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onConfigured(@NonNull CameraCaptureSession session) {
             mSession = session;
-            configPreview();
+            // 配置预览参数
+            try {
+                // 自动对焦
+                mPreviewBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                // 打开闪光灯
+                mPreviewBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
+                // 无限次的重复获取图像
+                mSession.setRepeatingRequest(mPreviewBuilder.build(), null, mHandler);
+            } catch (CameraAccessException e) {
+                e.printStackTrace();
+            }
         }
 
         @Override
@@ -210,7 +219,7 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onCaptureCompleted(CameraCaptureSession session, CaptureRequest request, TotalCaptureResult result) {
             mSession = session;
-            configPreview();
+            unlockFocus();
         }
 
         @Override
@@ -239,8 +248,6 @@ public class MainActivity extends AppCompatActivity {
             CameraCharacteristics cameraCharacteristics = mCameraManager.getCameraCharacteristics(mCameraId);
             captureRequestBuilder.set(CaptureRequest.JPEG_ORIENTATION, getJpegOrientation(cameraCharacteristics, rotation));//使图片做顺时针旋转
             CaptureRequest mCaptureRequest = captureRequestBuilder.build();
-            mSession.stopRepeating();
-            mSession.abortCaptures();
             mSession.capture(mCaptureRequest, mSessionCaptureCallback, mHandler);
         } catch (CameraAccessException e) {
             e.printStackTrace();
@@ -269,16 +276,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 配置预览参数
+     * Unlock the focus. This method should be called when still image capture sequence is
+     * finished.
      */
-    private void configPreview() {
+    private void unlockFocus() {
         try {
-            // 自动对焦
-            mPreviewBuilder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
-            // 打开闪光灯
-            mPreviewBuilder.set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
-            // 无限次的重复获取图像
-            mSession.setRepeatingRequest(mPreviewBuilder.build(), null, mHandler);
+            // Reset the auto-focus trigger
+            mPreviewBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER,
+                    CameraMetadata.CONTROL_AF_TRIGGER_CANCEL);
+            mPreviewBuilder.set(CaptureRequest.CONTROL_AE_MODE,
+                    CaptureRequest.CONTROL_AE_MODE_ON_AUTO_FLASH);
+            mSession.capture(mPreviewBuilder.build(), mSessionCaptureCallback,
+                    mHandler);
+            // After this, the camera will go back to the normal state of preview.
+            mSession.setRepeatingRequest(mPreviewBuilder.build(), mSessionCaptureCallback,
+                    mHandler);
         } catch (CameraAccessException e) {
             e.printStackTrace();
         }
